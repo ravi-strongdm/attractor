@@ -71,8 +71,9 @@
       "completed_at": "2026-02-25T21:32:27Z"
     },
     "015": {
-      "status": "in_progress",
-      "started_at": "2026-02-25T21:42:51Z"
+      "status": "completed",
+      "started_at": "2026-02-25T21:42:51Z",
+      "completed_at": "2026-02-25T21:44:46Z"
     }
   }
 }
