@@ -1,0 +1,31 @@
+// parallel.dot — fan-out / fan-in example using set nodes
+//
+// Flow:
+//   start → fan_out → [analyze, summarize] → fan_in → report → exit
+//
+// The two branches run in parallel.  No API keys required — all nodes are
+// type=set, so this pipeline works as a lint/demo target without credentials.
+digraph parallel {
+    // ── Nodes ────────────────────────────────────────────────────────
+    start     [type=start]
+
+    fork      [type=fan_out]
+
+    analyze   [type=set, key="analysis",  value="analysis complete"]
+    summarize [type=set, key="summary",   value="summary complete"]
+
+    join      [type=fan_in]
+
+    report    [type=set, key="report", value="{{ .analysis }} | {{ .summary }}"]
+
+    done      [type=exit]
+
+    // ── Edges ────────────────────────────────────────────────────────
+    start     -> fork
+    fork      -> analyze
+    fork      -> summarize
+    analyze   -> join
+    summarize -> join
+    join      -> report
+    report    -> done
+}

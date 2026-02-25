@@ -1,0 +1,29 @@
+// multi_provider.dot — two codergen nodes using different LLM providers
+//
+// Flow:
+//   start → plan[anthropic] → implement[openai] → done
+//
+// The planning node uses Claude; the implementation node uses GPT-4o.
+// Per-node model selection is done via the `model` attribute.
+//
+// To run this pipeline both ANTHROPIC_API_KEY and OPENAI_API_KEY must be set.
+// `attractor lint` validates the graph structure without requiring API keys.
+digraph multi_provider {
+    // ── Nodes ────────────────────────────────────────────────────────
+    start [type=start]
+
+    plan  [type=codergen,
+           model="anthropic:claude-sonnet-4-6",
+           prompt="Analyse the repository structure and write a concise plan for the feature: {{ .seed }}"]
+
+    impl  [type=codergen,
+           model="openai:gpt-4o",
+           prompt="Implement the following plan in the current working directory.\n\nPlan:\n{{ .plan_output }}"]
+
+    done  [type=exit]
+
+    // ── Edges ────────────────────────────────────────────────────────
+    start -> plan
+    plan  -> impl
+    impl  -> done
+}
