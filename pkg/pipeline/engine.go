@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 )
 
@@ -111,13 +112,13 @@ func (e *Engine) run(ctx context.Context, startID string, pctx *PipelineContext,
 			return fmt.Errorf("node %q (type=%q): %w", currentID, node.Type, err)
 		}
 
-		fmt.Printf("[attractor] executing node %q (type=%s)\n", node.ID, node.Type)
+		slog.Info("executing node", "node", node.ID, "type", node.Type)
 
 		if execErr := handler.Handle(ctx, node, pctx); execErr != nil {
 			// Check for the exit sentinel.
 			var exitSig ExitSignal
 			if errors.As(execErr, &exitSig) {
-				fmt.Printf("[attractor] pipeline complete at exit node %q\n", node.ID)
+				slog.Info("pipeline complete", "node", node.ID)
 				pctx.Set("last_node", node.ID)
 				if e.checkpointPath != "" {
 					_ = pctx.SaveCheckpoint(e.checkpointPath, node.ID)
@@ -141,7 +142,7 @@ func (e *Engine) run(ctx context.Context, startID string, pctx *PipelineContext,
 		}
 		if nextID == "" {
 			// No outgoing edges and not an exit node — treat as implicit exit.
-			fmt.Printf("[attractor] pipeline ended at node %q (no outgoing edges)\n", node.ID)
+			slog.Info("pipeline ended", "node", node.ID, "reason", "no outgoing edges")
 			return nil
 		}
 
@@ -179,13 +180,13 @@ func (e *Engine) executeFanOut(ctx context.Context, fanOutNode *Node, pctx *Pipe
 				pctx:       branchCtx,
 				// no checkpointing inside branches
 			}
-			fmt.Printf("[attractor] fan_out branch %q starting\n", branchStart)
+			slog.Debug("fan_out branch starting", "branch", branchStart)
 			err := subEng.run(ctx, branchStart, branchCtx, NodeTypeFanIn)
 			if err != nil {
 				results[idx] = branchResult{err: fmt.Errorf("branch %q: %w", branchStart, err)}
 				return
 			}
-			fmt.Printf("[attractor] fan_out branch %q complete\n", branchStart)
+			slog.Debug("fan_out branch complete", "branch", branchStart)
 			results[idx] = branchResult{snap: branchCtx.Snapshot()}
 		}()
 	}

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -27,6 +29,11 @@ func main() {
 }
 
 func rootCmd() *cobra.Command {
+	var (
+		logLevel  string
+		logFormat string
+	)
+
 	root := &cobra.Command{
 		Use:   "attractor",
 		Short: "Attractor — agentic pipeline runner",
@@ -34,12 +41,49 @@ func rootCmd() *cobra.Command {
 
 Each node in the graph is a typed handler (codergen, wait.human, set, …).
 Edges carry natural-language or boolean conditions that control flow.`,
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			return initLogger(logLevel, logFormat)
+		},
 	}
+
+	root.PersistentFlags().StringVar(&logLevel, "log-level", "info", "log level: debug, info, warn, error")
+	root.PersistentFlags().StringVar(&logFormat, "log-format", "text", "log format: text, json")
+
 	root.AddCommand(runCmd())
 	root.AddCommand(lintCmd())
 	root.AddCommand(resumeCmd())
 	root.AddCommand(versionCmd())
 	return root
+}
+
+// initLogger configures the global slog default handler.
+func initLogger(level, format string) error {
+	var lvl slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "info", "":
+		lvl = slog.LevelInfo
+	case "warn":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		return fmt.Errorf("unknown log level %q: use debug, info, warn, or error", level)
+	}
+
+	opts := &slog.HandlerOptions{Level: lvl}
+	var handler slog.Handler
+	switch strings.ToLower(format) {
+	case "json":
+		handler = slog.NewJSONHandler(os.Stderr, opts)
+	case "text", "":
+		handler = slog.NewTextHandler(os.Stderr, opts)
+	default:
+		return fmt.Errorf("unknown log format %q: use text or json", format)
+	}
+	slog.SetDefault(slog.New(handler))
+	return nil
 }
 
 // ─── run ──────────────────────────────────────────────────────────────────────
@@ -49,6 +93,7 @@ func runCmd() *cobra.Command {
 		workdir        string
 		defaultModel   string
 		checkpointPath string
+		outContextPath string
 		seed           string
 		timeout        time.Duration
 		vars           []string
@@ -66,13 +111,14 @@ func runCmd() *cobra.Command {
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
-			return executePipeline(ctx, dotFile, workdir, defaultModel, checkpointPath, seed, vars, "")
+			return executePipeline(ctx, dotFile, workdir, defaultModel, checkpointPath, outContextPath, seed, vars, "")
 		},
 	}
 
 	cmd.Flags().StringVar(&workdir, "workdir", ".", "working directory for agent file operations")
 	cmd.Flags().StringVar(&defaultModel, "model", "anthropic:claude-sonnet-4-6", "default LLM model (provider:model-id)")
 	cmd.Flags().StringVar(&checkpointPath, "checkpoint", "", "path to write/read checkpoint JSON (optional)")
+	cmd.Flags().StringVar(&outContextPath, "output-context", "", "write final pipeline context as JSON to this file")
 	cmd.Flags().StringVar(&seed, "seed", "", "initial seed value stored in pipeline context as 'seed'")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "maximum wall-clock time for the pipeline (e.g. 5m, 30s); 0 means no limit")
 	cmd.Flags().StringArrayVar(&vars, "var", nil, "set a pipeline context variable: --var key=value (repeatable)")
@@ -111,10 +157,11 @@ func lintCmd() *cobra.Command {
 
 func resumeCmd() *cobra.Command {
 	var (
-		workdir      string
-		defaultModel string
-		timeout      time.Duration
-		vars         []string
+		workdir        string
+		defaultModel   string
+		outContextPath string
+		timeout        time.Duration
+		vars           []string
 	)
 
 	cmd := &cobra.Command{
@@ -129,7 +176,7 @@ func resumeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load checkpoint: %w", err)
 			}
-			fmt.Printf("[attractor] resuming from node %q\n", lastNodeID)
+			slog.Info("resuming from checkpoint", "node", lastNodeID)
 
 			// Apply any --var overrides on top of the checkpoint context.
 			if err := applyVars(pctx, vars); err != nil {
@@ -165,12 +212,16 @@ func resumeCmd() *cobra.Command {
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
-			return eng.Execute(ctx, lastNodeID)
+			if runErr := eng.Execute(ctx, lastNodeID); runErr != nil {
+				return runErr
+			}
+			return writeOutputContext(outContextPath, pctx)
 		},
 	}
 
 	cmd.Flags().StringVar(&workdir, "workdir", ".", "working directory for agent file operations")
 	cmd.Flags().StringVar(&defaultModel, "model", "anthropic:claude-sonnet-4-6", "default LLM model")
+	cmd.Flags().StringVar(&outContextPath, "output-context", "", "write final pipeline context as JSON to this file")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "maximum wall-clock time for the pipeline (e.g. 5m, 30s); 0 means no limit")
 	cmd.Flags().StringArrayVar(&vars, "var", nil, "set a pipeline context variable: --var key=value (repeatable)")
 	return cmd
@@ -225,7 +276,7 @@ func versionCmd() *cobra.Command {
 
 func executePipeline(
 	ctx context.Context,
-	dotFile, workdir, defaultModel, checkpointPath, seed string,
+	dotFile, workdir, defaultModel, checkpointPath, outContextPath, seed string,
 	vars []string,
 	resumeFromNodeID string,
 ) error {
@@ -264,7 +315,27 @@ func executePipeline(
 	}
 
 	sctx := signalContext(ctx)
-	return eng.Execute(sctx, resumeFromNodeID)
+	if runErr := eng.Execute(sctx, resumeFromNodeID); runErr != nil {
+		return runErr
+	}
+	return writeOutputContext(outContextPath, pctx)
+}
+
+// writeOutputContext marshals pctx as JSON and writes it to path.
+// A blank path is a no-op.
+func writeOutputContext(path string, pctx *pipeline.PipelineContext) error {
+	if path == "" {
+		return nil
+	}
+	data, err := json.MarshalIndent(pctx.Snapshot(), "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal output context: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write output context %q: %w", path, err)
+	}
+	slog.Info("output context written", "path", path)
+	return nil
 }
 
 // applyVars parses a slice of "key=value" strings and injects them into pctx.

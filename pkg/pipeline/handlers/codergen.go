@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"github.com/ravi-parthasarathy/attractor/pkg/agent"
@@ -55,6 +56,11 @@ func (h *CodergenHandler) Handle(ctx context.Context, node *pipeline.Node, pctx 
 		agent.WithModel(model),
 	}
 
+	// Optional system_prompt from node attribute.
+	if sp := node.Attrs["system_prompt"]; sp != "" {
+		opts = append(opts, agent.WithSystem(sp))
+	}
+
 	// Optional max_turns from node attribute.
 	if mt := node.Attrs["max_turns"]; mt != "" {
 		if n, parseErr := strconv.Atoi(mt); parseErr == nil && n > 0 {
@@ -74,11 +80,11 @@ func (h *CodergenHandler) Handle(ctx context.Context, node *pipeline.Node, pctx 
 		for e := range eventCh {
 			switch e.Type {
 			case agent.EventTypeToolCall:
-				fmt.Printf("  [tool] %s: %s\n", e.ToolName, e.Content)
+				slog.Debug("tool call", "node", node.ID, "tool", e.ToolName, "input", e.Content)
 			case agent.EventTypeError:
-				fmt.Printf("  [error] %s\n", e.Content)
+				slog.Warn("agent error", "node", node.ID, "error", e.Content)
 			case agent.EventTypeSteering:
-				fmt.Printf("  [steering] %s\n", e.Content)
+				slog.Warn("agent steering", "node", node.ID, "message", e.Content)
 			}
 		}
 	}()
