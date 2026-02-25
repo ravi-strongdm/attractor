@@ -1,0 +1,52 @@
+// file_io.dot — demonstrates read_file and write_file node types.
+//
+// This pipeline:
+//  1. Reads a markdown spec file into context.
+//  2. Asserts the spec is non-empty.
+//  3. Stores a summary in context (stand-in for a codergen step).
+//  4. Writes the summary to an output file, creating parent dirs as needed.
+//  5. Appends a completion timestamp line to a run log.
+//
+// Run (from repo root):
+//   attractor run examples/file_io.dot \
+//     --var spec_path=docs/sprints/SPRINT-001.md \
+//     --var output_dir=/tmp/attractor-demo
+
+digraph file_io {
+    start [type=start]
+
+    // Read the spec file into context.
+    load_spec [type=read_file
+               key="spec"
+               path="{{.spec_path}}"]
+
+    // Fail fast if the spec is empty.
+    check_spec [type=assert
+                expr="spec"
+                message="spec file is empty or missing"]
+
+    // Summarise (in a real pipeline this would be a codergen node).
+    summarise [type=set
+               key="summary"
+               value="Processed spec from {{.spec_path}} — ready for review."]
+
+    // Write the summary to the output directory.
+    write_summary [type=write_file
+                   path="{{.output_dir}}/summary.txt"
+                   content="{{.summary}}\n"]
+
+    // Append a log entry.
+    write_log [type=write_file
+               path="{{.output_dir}}/run.log"
+               content="[done] {{.spec_path}}\n"
+               append="true"]
+
+    done [type=exit]
+
+    start        -> load_spec
+    load_spec    -> check_spec
+    check_spec   -> summarise
+    summarise    -> write_summary
+    write_summary -> write_log
+    write_log    -> done
+}
