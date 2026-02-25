@@ -21,6 +21,8 @@ const (
 	NodeTypeJSONExtract NodeType = "json_extract"
 	NodeTypeSplit       NodeType = "split"
 	NodeTypeMap         NodeType = "map"
+	NodeTypePrompt      NodeType = "prompt"
+	NodeTypeJSONDecode  NodeType = "json_decode"
 )
 
 // Node represents a single vertex in the pipeline graph.

@@ -413,6 +413,8 @@ func buildRegistry(workdir, defaultModel string) *handlers.Registry {
 	reg.Register("json_extract", &handlers.JSONExtractHandler{})
 	reg.Register("split", &handlers.SplitHandler{})
 	reg.Register("map", &handlers.MapHandler{DefaultModel: defaultModel, Workdir: workdir})
+	reg.Register("prompt", &handlers.PromptHandler{DefaultModel: defaultModel})
+	reg.Register("json_decode", &handlers.JSONDecodeHandler{})
 	reg.Register("codergen", &handlers.CodergenHandler{
 		DefaultModel: defaultModel,
 		Workdir:      workdir,

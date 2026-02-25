@@ -1,0 +1,46 @@
+// prompt_decode.dot — demonstrates the prompt and json_decode node types.
+//
+// This pipeline:
+//  1. Reads a text snippet from an env var.
+//  2. Asks an LLM to extract structured metadata as JSON (one prompt call).
+//  3. Unpacks the JSON response into individual context keys.
+//  4. Writes the extracted fields to a result file.
+//
+// Run (requires LLM API key):
+//   TEXT="Claude is an AI assistant made by Anthropic, founded in 2021." \
+//   attractor run examples/prompt_decode.dot --var output_dir=/tmp/prompt-demo
+
+digraph prompt_decode {
+    start [type=start]
+
+    // Load the input text from an env var.
+    load [type=env
+          key="input_text"
+          from="TEXT"
+          required="true"]
+
+    // Ask the LLM to extract structured data as JSON.
+    extract [type=prompt
+             prompt="Extract the following fields from this text as a JSON object with keys 'subject', 'maker', and 'year': {{.input_text}}"
+             key="meta_json"
+             system="Respond with a valid JSON object only. No explanation."
+             max_tokens="200"]
+
+    // Unpack the JSON response into individual context keys.
+    decode [type=json_decode
+            source="meta_json"
+            prefix="meta_"]
+
+    // Write the extracted fields to a result file.
+    save [type=write_file
+          path="{{.output_dir}}/metadata.txt"
+          content="subject: {{.meta_subject}}\nmaker: {{.meta_maker}}\nyear: {{.meta_year}}\n"]
+
+    done [type=exit]
+
+    start   -> load
+    load    -> extract
+    extract -> decode
+    decode  -> save
+    save    -> done
+}

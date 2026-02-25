@@ -33,6 +33,8 @@ var nodeRequiredAttrs = map[NodeType][]string{
 	NodeTypeJSONExtract: {"source", "path", "key"},
 	NodeTypeSplit:       {"source", "key"},
 	NodeTypeMap:         {"items", "item_key", "prompt"},
+	NodeTypePrompt:      {"prompt", "key"},
+	NodeTypeJSONDecode:  {"source"},
 }
 
 // Validate checks a pipeline for structural correctness.
