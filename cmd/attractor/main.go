@@ -53,6 +53,7 @@ Edges carry natural-language or boolean conditions that control flow.`,
 	root.AddCommand(lintCmd())
 	root.AddCommand(resumeCmd())
 	root.AddCommand(versionCmd())
+	root.AddCommand(graphCmd())
 	return root
 }
 
@@ -97,6 +98,7 @@ func runCmd() *cobra.Command {
 		seed           string
 		timeout        time.Duration
 		vars           []string
+		varFile        string
 	)
 
 	cmd := &cobra.Command{
@@ -111,7 +113,7 @@ func runCmd() *cobra.Command {
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
-			return executePipeline(ctx, dotFile, workdir, defaultModel, checkpointPath, outContextPath, seed, vars, "")
+			return executePipeline(ctx, dotFile, workdir, defaultModel, checkpointPath, outContextPath, seed, varFile, vars, "")
 		},
 	}
 
@@ -122,6 +124,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&seed, "seed", "", "initial seed value stored in pipeline context as 'seed'")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "maximum wall-clock time for the pipeline (e.g. 5m, 30s); 0 means no limit")
 	cmd.Flags().StringArrayVar(&vars, "var", nil, "set a pipeline context variable: --var key=value (repeatable)")
+	cmd.Flags().StringVar(&varFile, "var-file", "", "load pipeline context variables from a JSON object file")
 	return cmd
 }
 
@@ -162,6 +165,7 @@ func resumeCmd() *cobra.Command {
 		outContextPath string
 		timeout        time.Duration
 		vars           []string
+		varFile        string
 	)
 
 	cmd := &cobra.Command{
@@ -178,7 +182,10 @@ func resumeCmd() *cobra.Command {
 			}
 			slog.Info("resuming from checkpoint", "node", lastNodeID)
 
-			// Apply any --var overrides on top of the checkpoint context.
+			// Apply --var-file values, then --var overrides.
+			if err := applyVarFile(pctx, varFile); err != nil {
+				return err
+			}
 			if err := applyVars(pctx, vars); err != nil {
 				return err
 			}
@@ -224,6 +231,7 @@ func resumeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outContextPath, "output-context", "", "write final pipeline context as JSON to this file")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "maximum wall-clock time for the pipeline (e.g. 5m, 30s); 0 means no limit")
 	cmd.Flags().StringArrayVar(&vars, "var", nil, "set a pipeline context variable: --var key=value (repeatable)")
+	cmd.Flags().StringVar(&varFile, "var-file", "", "load pipeline context variables from a JSON object file")
 	return cmd
 }
 
@@ -277,6 +285,7 @@ func versionCmd() *cobra.Command {
 func executePipeline(
 	ctx context.Context,
 	dotFile, workdir, defaultModel, checkpointPath, outContextPath, seed string,
+	varFile string,
 	vars []string,
 	resumeFromNodeID string,
 ) error {
@@ -300,6 +309,9 @@ func executePipeline(
 	pctx := pipeline.NewPipelineContext()
 	if seed != "" {
 		pctx.Set("seed", seed)
+	}
+	if err := applyVarFile(pctx, varFile); err != nil {
+		return err
 	}
 	if err := applyVars(pctx, vars); err != nil {
 		return err
@@ -351,6 +363,33 @@ func applyVars(pctx *pipeline.PipelineContext, vars []string) error {
 			return fmt.Errorf("--var %q: key must not be empty", v)
 		}
 		pctx.Set(key, val)
+	}
+	return nil
+}
+
+// applyVarFile loads a JSON object from path and injects each key into pctx.
+// All values are stored as strings (fmt.Sprintf("%v", v)) for consistency with --var.
+// A blank path is a no-op. Returns an error if the file is missing, not valid JSON,
+// or the top-level value is not a JSON object.
+func applyVarFile(pctx *pipeline.PipelineContext, path string) error {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("--var-file: read %q: %w", path, err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		// Could be non-object JSON — give a clear message.
+		var top any
+		if jsonErr := json.Unmarshal(data, &top); jsonErr == nil {
+			return fmt.Errorf("--var-file %q: top-level value must be a JSON object", path)
+		}
+		return fmt.Errorf("--var-file %q: invalid JSON: %w", path, err)
+	}
+	for k, v := range raw {
+		pctx.Set(k, fmt.Sprintf("%v", v))
 	}
 	return nil
 }
