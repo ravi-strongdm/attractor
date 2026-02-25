@@ -1,0 +1,27 @@
+// http_assert.dot — demonstrates the http and assert node types.
+//
+// This pipeline:
+//  1. Fetches a JSON post from the JSONPlaceholder public API.
+//  2. Asserts the HTTP request succeeded (status 200).
+//  3. Stores a friendly summary in context.
+//
+// Run:
+//   attractor run examples/http_assert.dot
+
+digraph http_assert {
+    start  [type=start]
+    fetch  [type=http
+            url="https://jsonplaceholder.typicode.com/posts/1"
+            response_key="post_body"
+            status_key="post_status"]
+    check  [type=assert
+            expr="post_status == '200'"
+            message="expected HTTP 200 from JSONPlaceholder"]
+    record [type=set key="result" value="fetched post: {{.post_body}}"]
+    done   [type=exit]
+
+    start  -> fetch
+    fetch  -> check
+    check  -> record
+    record -> done
+}
