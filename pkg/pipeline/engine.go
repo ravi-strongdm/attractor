@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
+	"time"
 )
 
 const maxNodeVisits = 50
@@ -114,7 +116,7 @@ func (e *Engine) run(ctx context.Context, startID string, pctx *PipelineContext,
 
 		slog.Info("executing node", "node", node.ID, "type", node.Type)
 
-		if execErr := handler.Handle(ctx, node, pctx); execErr != nil {
+		if execErr := executeWithRetry(ctx, handler, node, pctx); execErr != nil {
 			// Check for the exit sentinel.
 			var exitSig ExitSignal
 			if errors.As(execErr, &exitSig) {
@@ -270,4 +272,60 @@ func (e *Engine) selectNext(nodeID string, pctx *PipelineContext) (string, error
 
 	// No condition matched — this is a pipeline stall.
 	return "", fmt.Errorf("no outgoing edge condition matched for node %q", nodeID)
+}
+
+// executeWithRetry calls h.Handle and, on error, retries up to retry_max
+// additional times with retry_delay between attempts.  ExitSignal errors are
+// never retried — they are returned immediately.
+//
+// Node attributes consulted:
+//
+//	retry_max   — integer ≥ 0 (default 0, meaning no retry)
+//	retry_delay — duration string (default "0s")
+func executeWithRetry(ctx context.Context, h Handler, node *Node, pctx *PipelineContext) error {
+	maxRetries := 0
+	if s := node.Attrs["retry_max"]; s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxRetries = n
+		}
+	}
+
+	retryDelay := time.Duration(0)
+	if s := node.Attrs["retry_delay"]; s != "" {
+		if d, err := time.ParseDuration(s); err == nil {
+			retryDelay = d
+		}
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			slog.Warn("retrying node", "node", node.ID, "attempt", attempt, "max", maxRetries)
+			if retryDelay > 0 {
+				timer := time.NewTimer(retryDelay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return fmt.Errorf("node %q: retry cancelled: %w", node.ID, ctx.Err())
+				case <-timer.C:
+				}
+			}
+		}
+
+		lastErr = h.Handle(ctx, node, pctx)
+		if lastErr == nil {
+			return nil
+		}
+
+		// ExitSignal must propagate immediately — never retry.
+		var exitSig ExitSignal
+		if errors.As(lastErr, &exitSig) {
+			return lastErr
+		}
+	}
+
+	if maxRetries > 0 {
+		return fmt.Errorf("after %d attempt(s): %w", maxRetries+1, lastErr)
+	}
+	return lastErr
 }

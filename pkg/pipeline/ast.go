@@ -13,6 +13,7 @@ const (
 	NodeTypeFanIn    NodeType = "fan_in"
 	NodeTypeHTTP     NodeType = "http"
 	NodeTypeAssert   NodeType = "assert"
+	NodeTypeSleep    NodeType = "sleep"
 )
 
 // Node represents a single vertex in the pipeline graph.

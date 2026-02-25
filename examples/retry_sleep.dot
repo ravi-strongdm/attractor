@@ -1,0 +1,35 @@
+// retry_sleep.dot — demonstrates retry_max/retry_delay attributes and the
+// sleep node type.
+//
+// This pipeline polls a health-check endpoint up to 3 times, waiting 2 seconds
+// between attempts, then asserts the service is healthy.
+//
+// Run:
+//   attractor run examples/retry_sleep.dot
+
+digraph retry_sleep {
+    start  [type=start]
+
+    // Fetch the health endpoint; retry up to 3 extra times on network error,
+    // with a 2-second delay between attempts.
+    health [type=http
+            url="https://httpbin.org/status/200"
+            status_key="health_status"
+            retry_max="3"
+            retry_delay="2s"]
+
+    // Pause 1 second before asserting (demonstrates sleep node).
+    pause  [type=sleep duration="1s"]
+
+    // Confirm the service returned HTTP 200.
+    check  [type=assert
+            expr="health_status == '200'"
+            message="health check failed — service not ready"]
+
+    done   [type=exit]
+
+    start  -> health
+    health -> pause
+    pause  -> check
+    check  -> done
+}
