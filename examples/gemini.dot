@@ -1,0 +1,22 @@
+// gemini.dot — simple coding agent loop using Google Gemini
+//
+// Requires GEMINI_API_KEY to run:
+//   attractor run examples/gemini.dot --seed "write a hello world in Python"
+//
+// Lint without API key:
+//   attractor lint examples/gemini.dot
+digraph gemini {
+    // ── Nodes ────────────────────────────────────────────────────────
+    start   [type=start]
+
+    agent   [type=codergen,
+             model="gemini:gemini-2.0-flash",
+             prompt="{{.seed}}",
+             max_turns="5"]
+
+    done    [type=exit]
+
+    // ── Edges ────────────────────────────────────────────────────────
+    start -> agent
+    agent -> done
+}

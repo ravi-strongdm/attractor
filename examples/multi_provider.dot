@@ -1,12 +1,11 @@
-// multi_provider.dot — two codergen nodes using different LLM providers
+// multi_provider.dot — three codergen nodes using all three LLM providers
 //
 // Flow:
-//   start → plan[anthropic] → implement[openai] → done
+//   start → plan[anthropic] → implement[openai] → review[gemini] → done
 //
-// The planning node uses Claude; the implementation node uses GPT-4o.
-// Per-node model selection is done via the `model` attribute.
-//
-// To run this pipeline both ANTHROPIC_API_KEY and OPENAI_API_KEY must be set.
+// Each node selects a different provider via the `model` attribute.
+// To run this pipeline ANTHROPIC_API_KEY, OPENAI_API_KEY, and GEMINI_API_KEY
+// must all be set.
 // `attractor lint` validates the graph structure without requiring API keys.
 digraph multi_provider {
     // ── Nodes ────────────────────────────────────────────────────────
@@ -20,10 +19,16 @@ digraph multi_provider {
            model="openai:gpt-4o",
            prompt="Implement the following plan in the current working directory.\n\nPlan:\n{{ .plan_output }}"]
 
+    review [type=codergen,
+            model="gemini:gemini-2.0-flash",
+            prompt="Review the implementation and summarise any issues.\n\nImplementation output:\n{{ .impl_output }}",
+            max_turns="3"]
+
     done  [type=exit]
 
     // ── Edges ────────────────────────────────────────────────────────
-    start -> plan
-    plan  -> impl
-    impl  -> done
+    start  -> plan
+    plan   -> impl
+    impl   -> review
+    review -> done
 }
