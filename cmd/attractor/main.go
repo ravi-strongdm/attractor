@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -36,6 +38,7 @@ Edges carry natural-language or boolean conditions that control flow.`,
 	root.AddCommand(runCmd())
 	root.AddCommand(lintCmd())
 	root.AddCommand(resumeCmd())
+	root.AddCommand(versionCmd())
 	return root
 }
 
@@ -48,6 +51,7 @@ func runCmd() *cobra.Command {
 		checkpointPath string
 		seed           string
 		timeout        time.Duration
+		vars           []string
 	)
 
 	cmd := &cobra.Command{
@@ -62,15 +66,16 @@ func runCmd() *cobra.Command {
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
-			return executePipeline(ctx, dotFile, workdir, defaultModel, checkpointPath, seed, "")
+			return executePipeline(ctx, dotFile, workdir, defaultModel, checkpointPath, seed, vars, "")
 		},
 	}
 
 	cmd.Flags().StringVar(&workdir, "workdir", ".", "working directory for agent file operations")
 	cmd.Flags().StringVar(&defaultModel, "model", "anthropic:claude-sonnet-4-6", "default LLM model (provider:model-id)")
 	cmd.Flags().StringVar(&checkpointPath, "checkpoint", "", "path to write/read checkpoint JSON (optional)")
-	cmd.Flags().StringVar(&seed, "seed", "", "initial seed value stored in pipeline context")
+	cmd.Flags().StringVar(&seed, "seed", "", "initial seed value stored in pipeline context as 'seed'")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "maximum wall-clock time for the pipeline (e.g. 5m, 30s); 0 means no limit")
+	cmd.Flags().StringArrayVar(&vars, "var", nil, "set a pipeline context variable: --var key=value (repeatable)")
 	return cmd
 }
 
@@ -109,6 +114,7 @@ func resumeCmd() *cobra.Command {
 		workdir      string
 		defaultModel string
 		timeout      time.Duration
+		vars         []string
 	)
 
 	cmd := &cobra.Command{
@@ -124,6 +130,11 @@ func resumeCmd() *cobra.Command {
 				return fmt.Errorf("load checkpoint: %w", err)
 			}
 			fmt.Printf("[attractor] resuming from node %q\n", lastNodeID)
+
+			// Apply any --var overrides on top of the checkpoint context.
+			if err := applyVars(pctx, vars); err != nil {
+				return err
+			}
 
 			// Parse pipeline.
 			src, err := os.ReadFile(dotFile)
@@ -161,14 +172,62 @@ func resumeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workdir, "workdir", ".", "working directory for agent file operations")
 	cmd.Flags().StringVar(&defaultModel, "model", "anthropic:claude-sonnet-4-6", "default LLM model")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "maximum wall-clock time for the pipeline (e.g. 5m, 30s); 0 means no limit")
+	cmd.Flags().StringArrayVar(&vars, "var", nil, "set a pipeline context variable: --var key=value (repeatable)")
 	return cmd
+}
+
+// ─── version ──────────────────────────────────────────────────────────────────
+
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version and build information",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			info, ok := debug.ReadBuildInfo()
+			if !ok {
+				fmt.Println("attractor (build info unavailable)")
+				return nil
+			}
+
+			version := info.Main.Version
+			if version == "" || version == "(devel)" {
+				version = "dev"
+			}
+
+			var revision, buildTime string
+			for _, s := range info.Settings {
+				switch s.Key {
+				case "vcs.revision":
+					revision = s.Value
+					if len(revision) > 12 {
+						revision = revision[:12]
+					}
+				case "vcs.time":
+					buildTime = s.Value
+				}
+			}
+
+			fmt.Printf("attractor %s\n", version)
+			fmt.Printf("  module:  %s\n", info.Main.Path)
+			fmt.Printf("  go:      %s\n", info.GoVersion)
+			if revision != "" {
+				fmt.Printf("  commit:  %s\n", revision)
+			}
+			if buildTime != "" {
+				fmt.Printf("  built:   %s\n", buildTime)
+			}
+			return nil
+		},
+	}
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func executePipeline(
 	ctx context.Context,
-	dotFile, workdir, defaultModel, checkpointPath, seed, resumeFromNodeID string,
+	dotFile, workdir, defaultModel, checkpointPath, seed string,
+	vars []string,
+	resumeFromNodeID string,
 ) error {
 	// Read and parse pipeline.
 	src, err := os.ReadFile(dotFile)
@@ -191,6 +250,9 @@ func executePipeline(
 	if seed != "" {
 		pctx.Set("seed", seed)
 	}
+	if err := applyVars(pctx, vars); err != nil {
+		return err
+	}
 
 	// Build handler registry.
 	reg := buildRegistry(workdir, defaultModel)
@@ -203,6 +265,23 @@ func executePipeline(
 
 	sctx := signalContext(ctx)
 	return eng.Execute(sctx, resumeFromNodeID)
+}
+
+// applyVars parses a slice of "key=value" strings and injects them into pctx.
+// Returns an error for any entry that does not contain an "=" separator.
+func applyVars(pctx *pipeline.PipelineContext, vars []string) error {
+	for _, v := range vars {
+		idx := strings.IndexByte(v, '=')
+		if idx < 0 {
+			return fmt.Errorf("--var %q: expected key=value format", v)
+		}
+		key, val := v[:idx], v[idx+1:]
+		if key == "" {
+			return fmt.Errorf("--var %q: key must not be empty", v)
+		}
+		pctx.Set(key, val)
+	}
+	return nil
 }
 
 // buildRegistry constructs a handler registry with all built-in handlers.

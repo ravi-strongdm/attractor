@@ -194,3 +194,86 @@ func TestSearchFileTool_SubdirectoryScope(t *testing.T) {
 		t.Fatal("expected at least one match in pkg/")
 	}
 }
+
+// ─── PatchFile ────────────────────────────────────────────────────────────────
+
+func TestPatchFileTool(t *testing.T) {
+	dir := t.TempDir()
+	original := "package main\n\nfunc oldName() {}\n"
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte(original), 0o644)
+
+	tool := tools.NewPatchFileTool(dir)
+	input, _ := json.Marshal(map[string]string{
+		"path":       "main.go",
+		"old_string": "func oldName()",
+		"new_string": "func newName()",
+	})
+	out, err := tool.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	// Output should mention the file
+	if out == "" {
+		t.Error("expected non-empty output")
+	}
+
+	got, _ := os.ReadFile(filepath.Join(dir, "main.go"))
+	want := "package main\n\nfunc newName() {}\n"
+	if string(got) != want {
+		t.Errorf("file content = %q, want %q", string(got), want)
+	}
+}
+
+func TestPatchFileTool_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "f.go"), []byte("package main\n"), 0o644)
+
+	tool := tools.NewPatchFileTool(dir)
+	input, _ := json.Marshal(map[string]string{
+		"path":       "f.go",
+		"old_string": "DOES_NOT_EXIST",
+		"new_string": "replacement",
+	})
+	_, err := tool.Execute(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error when old_string not found")
+	}
+}
+
+func TestPatchFileTool_PathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	tool := tools.NewPatchFileTool(dir)
+	input, _ := json.Marshal(map[string]string{
+		"path":       "../../etc/passwd",
+		"old_string": "root",
+		"new_string": "evil",
+	})
+	_, err := tool.Execute(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected path traversal error")
+	}
+}
+
+func TestPatchFileTool_FirstOnly(t *testing.T) {
+	dir := t.TempDir()
+	content := "aaa bbb aaa bbb aaa"
+	_ = os.WriteFile(filepath.Join(dir, "f.txt"), []byte(content), 0o644)
+
+	tool := tools.NewPatchFileTool(dir)
+	input, _ := json.Marshal(map[string]string{
+		"path":       "f.txt",
+		"old_string": "aaa",
+		"new_string": "XXX",
+	})
+	_, err := tool.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	got, _ := os.ReadFile(filepath.Join(dir, "f.txt"))
+	// Only the first "aaa" should be replaced
+	want := "XXX bbb aaa bbb aaa"
+	if string(got) != want {
+		t.Errorf("file = %q, want %q", string(got), want)
+	}
+}

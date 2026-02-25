@@ -49,6 +49,7 @@ func (h *CodergenHandler) Handle(ctx context.Context, node *pipeline.Node, pctx 
 	registry.Register(tools.NewRunCommandTool(workdir))
 	registry.Register(tools.NewListDirTool(workdir))
 	registry.Register(tools.NewSearchFileTool(workdir))
+	registry.Register(tools.NewPatchFileTool(workdir))
 
 	opts := []agent.Option{
 		agent.WithModel(model),
