@@ -18,6 +18,21 @@ func (e LintError) Error() string {
 	return e.Message
 }
 
+// nodeRequiredAttrs maps each node type to the list of attribute names that
+// must be present (non-empty) in the DOT file.  The linter reports all
+// missing attributes across all nodes before aborting.
+var nodeRequiredAttrs = map[NodeType][]string{
+	NodeTypeSet:         {"key"},
+	NodeTypeHTTP:        {"url"},
+	NodeTypeAssert:      {"expr"},
+	NodeTypeSleep:       {"duration"},
+	NodeTypeSwitch:      {"key"},
+	NodeTypeEnv:         {"key", "from"},
+	NodeTypeReadFile:    {"key", "path"},
+	NodeTypeWriteFile:   {"path", "content"},
+	NodeTypeJSONExtract: {"source", "path", "key"},
+}
+
 // Validate checks a pipeline for structural correctness.
 // Returns all discovered errors (not just the first).
 func Validate(p *Pipeline) []LintError {
@@ -88,6 +103,22 @@ func Validate(p *Pipeline) []LintError {
 		}
 	}
 
+	// Required attribute checks for known node types.
+	for id, n := range p.Nodes {
+		required, ok := nodeRequiredAttrs[n.Type]
+		if !ok {
+			continue
+		}
+		for _, attr := range required {
+			if n.Attrs[attr] == "" {
+				errs = append(errs, LintError{
+					NodeID:  id,
+					Message: fmt.Sprintf("missing required attribute %q for node type %q", attr, n.Type),
+				})
+			}
+		}
+	}
+
 	return errs
 }
 
@@ -112,6 +143,25 @@ func hasFanInReachable(p *Pipeline, startID string) bool {
 		}
 	}
 	return false
+}
+
+// ValidateNode checks a single node's required attributes and returns any
+// lint errors.  This is a convenience helper used in tests and by Validate.
+func ValidateNode(n *Node) []LintError {
+	var errs []LintError
+	required, ok := nodeRequiredAttrs[n.Type]
+	if !ok {
+		return nil
+	}
+	for _, attr := range required {
+		if n.Attrs[attr] == "" {
+			errs = append(errs, LintError{
+				NodeID:  n.ID,
+				Message: fmt.Sprintf("missing required attribute %q for node type %q", attr, n.Type),
+			})
+		}
+	}
+	return errs
 }
 
 // ValidateErr calls Validate and returns nil if there are no errors, or a

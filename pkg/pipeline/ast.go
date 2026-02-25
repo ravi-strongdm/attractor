@@ -16,8 +16,9 @@ const (
 	NodeTypeSleep    NodeType = "sleep"
 	NodeTypeSwitch    NodeType = "switch"
 	NodeTypeEnv       NodeType = "env"
-	NodeTypeReadFile  NodeType = "read_file"
-	NodeTypeWriteFile NodeType = "write_file"
+	NodeTypeReadFile    NodeType = "read_file"
+	NodeTypeWriteFile   NodeType = "write_file"
+	NodeTypeJSONExtract NodeType = "json_extract"
 )
 
 // Node represents a single vertex in the pipeline graph.

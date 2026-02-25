@@ -1,0 +1,52 @@
+// json_extract.dot — demonstrates the json_extract node type and the
+// validator's required-attribute checking.
+//
+// This pipeline fetches a post from JSONPlaceholder, extracts the title
+// field from the JSON response, asserts it is non-empty, then writes it
+// to a file.
+//
+// Run:
+//   attractor run examples/json_extract.dot --var output_dir=/tmp/jx-demo
+
+digraph json_extract {
+    start [type=start]
+
+    // Fetch a JSON post.
+    fetch [type=http
+           url="https://jsonplaceholder.typicode.com/posts/1"
+           response_key="post_json"
+           status_key="post_status"
+           retry_max="2"
+           retry_delay="1s"]
+
+    // Assert HTTP success.
+    check_status [type=assert
+                  expr="post_status == '200'"
+                  message="fetch failed"]
+
+    // Extract the title field from the JSON response.
+    get_title [type=json_extract
+               source="post_json"
+               path=".title"
+               key="title"
+               default="(no title)"]
+
+    // Assert we got something.
+    check_title [type=assert
+                 expr="title"
+                 message="title is empty"]
+
+    // Write the extracted title to disk.
+    save [type=write_file
+          path="{{.output_dir}}/title.txt"
+          content="{{.title}}\n"]
+
+    done [type=exit]
+
+    start        -> fetch
+    fetch        -> check_status
+    check_status -> get_title
+    get_title    -> check_title
+    check_title  -> save
+    save         -> done
+}

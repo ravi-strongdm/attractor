@@ -454,6 +454,98 @@ func TestEngine_ParallelFanOut(t *testing.T) {
 	}
 }
 
+// ─── Validator required-attribute tests ──────────────────────────────────────
+
+func TestValidateRequiredAttrsPass(t *testing.T) {
+	// All nodes carry their required attributes — no lint errors expected.
+	nodes := []struct {
+		id    string
+		ntype string
+		attrs map[string]string
+	}{
+		{"n1", "set", map[string]string{"key": "k", "value": "v"}},
+		{"n2", "http", map[string]string{"url": "https://example.com"}},
+		{"n3", "assert", map[string]string{"expr": "x == 'ok'"}},
+		{"n4", "sleep", map[string]string{"duration": "1s"}},
+		{"n5", "switch", map[string]string{"key": "status"}},
+		{"n6", "env", map[string]string{"key": "k", "from": "VAR"}},
+		{"n7", "read_file", map[string]string{"key": "k", "path": "/f"}},
+		{"n8", "write_file", map[string]string{"path": "/f", "content": "x"}},
+		{"n9", "json_extract", map[string]string{"source": "s", "path": ".x", "key": "k"}},
+	}
+
+	for _, tc := range nodes {
+		node := &pipeline.Node{
+			ID:    tc.id,
+			Type:  pipeline.NodeType(tc.ntype),
+			Attrs: tc.attrs,
+		}
+		errs := pipeline.ValidateNode(node)
+		if len(errs) != 0 {
+			t.Errorf("node type %q: unexpected lint errors: %v", tc.ntype, errs)
+		}
+	}
+}
+
+func TestValidateRequiredAttrs(t *testing.T) {
+	tests := []struct {
+		ntype   string
+		attrs   map[string]string // deliberately missing required attrs
+		wantErr string
+	}{
+		{"set", map[string]string{}, "key"},
+		{"http", map[string]string{}, "url"},
+		{"assert", map[string]string{}, "expr"},
+		{"sleep", map[string]string{}, "duration"},
+		{"switch", map[string]string{}, "key"},
+		{"env", map[string]string{"from": "VAR"}, "key"},
+		{"env", map[string]string{"key": "k"}, "from"},
+		{"read_file", map[string]string{"path": "/f"}, "key"},
+		{"read_file", map[string]string{"key": "k"}, "path"},
+		{"write_file", map[string]string{"content": "x"}, "path"},
+		{"write_file", map[string]string{"path": "/f"}, "content"},
+		{"json_extract", map[string]string{"path": ".x", "key": "k"}, "source"},
+		{"json_extract", map[string]string{"source": "s", "key": "k"}, "path"},
+		{"json_extract", map[string]string{"source": "s", "path": ".x"}, "key"},
+	}
+
+	for _, tc := range tests {
+		node := &pipeline.Node{
+			ID:    "n",
+			Type:  pipeline.NodeType(tc.ntype),
+			Attrs: tc.attrs,
+		}
+		errs := pipeline.ValidateNode(node)
+		if len(errs) == 0 {
+			t.Errorf("type=%q attrs=%v: expected lint error for missing %q, got none",
+				tc.ntype, tc.attrs, tc.wantErr)
+			continue
+		}
+		found := false
+		for _, e := range errs {
+			if contains(e.Message, tc.wantErr) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("type=%q: expected error mentioning %q, got %v", tc.ntype, tc.wantErr, errs)
+		}
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
+		func() bool {
+			for i := 0; i <= len(s)-len(sub); i++ {
+				if s[i:i+len(sub)] == sub {
+					return true
+				}
+			}
+			return false
+		}())
+}
+
 func TestPipelineContext_Copy(t *testing.T) {
 	orig := pipeline.NewPipelineContext()
 	orig.Set("x", "original")
