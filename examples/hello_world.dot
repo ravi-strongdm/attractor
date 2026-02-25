@@ -1,0 +1,11 @@
+// hello_world.dot — minimal pipeline that greets the user
+digraph hello_world {
+    // Node declarations
+    start  [type=start]
+    greet  [type=set, key="greeting", value="Hello, {{ .seed }}!"]
+    finish [type=exit]
+
+    // Edges (unconditional)
+    start  -> greet
+    greet  -> finish
+}

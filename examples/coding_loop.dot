@@ -1,0 +1,28 @@
+// coding_loop.dot — a codergen pipeline with human review
+//
+// Flow:
+//   start → ask_human → codergen → review → finish
+//
+// The human provides the feature description; the coding agent implements it.
+digraph coding_loop {
+    // ── Nodes ────────────────────────────────────────────────────────
+    start  [type=start]
+
+    ask    [type="wait.human",
+            prompt="Describe the feature you want the agent to implement:"]
+
+    code   [type=codergen,
+            prompt="Implement the following feature in the current working directory.\n\nFeature description:\n{{ .ask_response }}\n\nWrite clean, well-tested Go code."]
+
+    review [type="wait.human",
+            prompt="Review the agent's output above. Type 'ok' to accept, or describe changes needed:"]
+
+    done   [type=exit]
+
+    // ── Edges ────────────────────────────────────────────────────────
+    start  -> ask
+    ask    -> code
+    code   -> review
+    review -> done   [label="review_response == 'ok'"]
+    review -> code   [label="review_response != 'ok'"]
+}
