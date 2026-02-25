@@ -35,6 +35,8 @@ var nodeRequiredAttrs = map[NodeType][]string{
 	NodeTypeMap:         {"items", "item_key", "prompt"},
 	NodeTypePrompt:      {"prompt", "key"},
 	NodeTypeJSONDecode:  {"source"},
+	NodeTypeExec:        {"cmd"},
+	NodeTypeJSONPack:    {"keys", "output"},
 }
 
 // Validate checks a pipeline for structural correctness.

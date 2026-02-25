@@ -23,6 +23,8 @@ const (
 	NodeTypeMap         NodeType = "map"
 	NodeTypePrompt      NodeType = "prompt"
 	NodeTypeJSONDecode  NodeType = "json_decode"
+	NodeTypeExec        NodeType = "exec"
+	NodeTypeJSONPack    NodeType = "json_pack"
 )
 
 // Node represents a single vertex in the pipeline graph.

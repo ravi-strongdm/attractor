@@ -1,0 +1,44 @@
+// exec_pack.dot — demonstrates the exec and json_pack node types.
+//
+// This pipeline:
+//  1. Runs "git log" to get recent commits.
+//  2. Runs "git status" to check working tree state.
+//  3. Packs both results into a JSON object.
+//  4. Writes the packed JSON to a report file.
+//
+// Run:
+//   attractor run examples/exec_pack.dot --var output_dir=/tmp/exec-demo
+
+digraph exec_pack {
+    start [type=start]
+
+    // Capture recent git log.
+    git_log [type=exec
+             cmd="git log --oneline -5 2>&1 || echo '(not a git repo)'"
+             stdout_key="recent_commits"
+             fail_on_error="false"]
+
+    // Capture git status.
+    git_status [type=exec
+                cmd="git status --short 2>&1 || echo '(not a git repo)'"
+                stdout_key="working_tree"
+                fail_on_error="false"]
+
+    // Pack both outputs into a single JSON object.
+    pack [type=json_pack
+          keys="recent_commits,working_tree"
+          output="report_json"]
+
+    // Write the JSON report.
+    save [type=write_file
+          path="{{.output_dir}}/git_report.json"
+          content="{{.report_json}}\n"]
+
+    done [type=exit]
+
+    start      -> git_log
+    git_log    -> git_status
+    git_status -> pack
+    pack       -> save
+    save       -> done
+}
