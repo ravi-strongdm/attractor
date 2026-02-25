@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -46,6 +47,7 @@ func runCmd() *cobra.Command {
 		defaultModel   string
 		checkpointPath string
 		seed           string
+		timeout        time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -54,7 +56,13 @@ func runCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dotFile := args[0]
-			return executePipeline(cmd.Context(), dotFile, workdir, defaultModel, checkpointPath, seed, "")
+			ctx := cmd.Context()
+			if timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
+			return executePipeline(ctx, dotFile, workdir, defaultModel, checkpointPath, seed, "")
 		},
 	}
 
@@ -62,6 +70,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&defaultModel, "model", "anthropic:claude-sonnet-4-6", "default LLM model (provider:model-id)")
 	cmd.Flags().StringVar(&checkpointPath, "checkpoint", "", "path to write/read checkpoint JSON (optional)")
 	cmd.Flags().StringVar(&seed, "seed", "", "initial seed value stored in pipeline context")
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "maximum wall-clock time for the pipeline (e.g. 5m, 30s); 0 means no limit")
 	return cmd
 }
 
@@ -99,6 +108,7 @@ func resumeCmd() *cobra.Command {
 	var (
 		workdir      string
 		defaultModel string
+		timeout      time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -139,12 +149,18 @@ func resumeCmd() *cobra.Command {
 			}
 
 			ctx := signalContext(cmd.Context())
+			if timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
 			return eng.Execute(ctx, lastNodeID)
 		},
 	}
 
 	cmd.Flags().StringVar(&workdir, "workdir", ".", "working directory for agent file operations")
 	cmd.Flags().StringVar(&defaultModel, "model", "anthropic:claude-sonnet-4-6", "default LLM model")
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "maximum wall-clock time for the pipeline (e.g. 5m, 30s); 0 means no limit")
 	return cmd
 }
 

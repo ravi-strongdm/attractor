@@ -12,6 +12,7 @@ import (
 const (
 	defaultModel     = "anthropic:claude-sonnet-4-6"
 	defaultMaxTokens = 4096
+	defaultMaxTurns  = 50
 )
 
 // AgentResult holds the final output of a completed agent loop.
@@ -27,6 +28,7 @@ type CodingAgentLoop struct {
 	workdir   string
 	model     string
 	maxTokens int
+	maxTurns  int
 	system    string
 	eventCh   chan<- Event
 }
@@ -54,6 +56,16 @@ func WithMaxTokens(n int) Option {
 	return func(a *CodingAgentLoop) { a.maxTokens = n }
 }
 
+// WithMaxTurns sets the maximum number of LLM turns before the loop aborts.
+// A value <= 0 uses the default (50).
+func WithMaxTurns(n int) Option {
+	return func(a *CodingAgentLoop) {
+		if n > 0 {
+			a.maxTurns = n
+		}
+	}
+}
+
 // NewCodingAgentLoop creates a CodingAgentLoop.
 func NewCodingAgentLoop(client llm.Client, registry *tools.Registry, workdir string, opts ...Option) *CodingAgentLoop {
 	a := &CodingAgentLoop{
@@ -62,6 +74,7 @@ func NewCodingAgentLoop(client llm.Client, registry *tools.Registry, workdir str
 		workdir:   workdir,
 		model:     defaultModel,
 		maxTokens: defaultMaxTokens,
+		maxTurns:  defaultMaxTurns,
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -89,7 +102,12 @@ func (a *CodingAgentLoop) Run(ctx context.Context, instruction string) (AgentRes
 	session.Append(llm.TextMessage(llm.RoleUser, instruction))
 	a.emit(Event{Type: EventTypeLLMTurn, Content: "starting agent loop"})
 
+	turns := 0
 	for {
+		turns++
+		if turns > a.maxTurns {
+			return AgentResult{}, &MaxTurnsError{Turns: a.maxTurns}
+		}
 		// Truncate if session is getting large
 		if session.Len() > defaultTruncationHeadTurns+defaultTruncationTailTurns+5 {
 			session.Truncate(defaultTruncationHeadTurns, defaultTruncationTailTurns)

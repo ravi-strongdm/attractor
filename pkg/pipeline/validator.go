@@ -78,7 +78,40 @@ func Validate(p *Pipeline) []LintError {
 		}
 	}
 
+	// Every fan_out node must have a reachable fan_in node downstream.
+	for id, n := range p.Nodes {
+		if n.Type != NodeTypeFanOut {
+			continue
+		}
+		if !hasFanInReachable(p, id) {
+			errs = append(errs, LintError{NodeID: id, Message: "fan_out node has no reachable fan_in node"})
+		}
+	}
+
 	return errs
+}
+
+// hasFanInReachable returns true if a fan_in node is reachable from startID via BFS.
+func hasFanInReachable(p *Pipeline, startID string) bool {
+	visited := map[string]bool{}
+	queue := []string{startID}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if visited[id] {
+			continue
+		}
+		visited[id] = true
+		for _, e := range p.OutgoingEdges(id) {
+			if n, ok := p.Nodes[e.To]; ok && n.Type == NodeTypeFanIn {
+				return true
+			}
+			if !visited[e.To] {
+				queue = append(queue, e.To)
+			}
+		}
+	}
+	return false
 }
 
 // ValidateErr calls Validate and returns nil if there are no errors, or a

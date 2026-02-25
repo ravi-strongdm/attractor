@@ -127,3 +127,70 @@ func TestRunCommandTool(t *testing.T) {
 		t.Errorf("output = %q, want %q", out, "hello\n")
 	}
 }
+
+// ─── SearchFile ───────────────────────────────────────────────────────────────
+
+func TestSearchFileTool_FindsPattern(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "helper.go"), []byte("package main\n\nfunc helper() {}\n"), 0o644)
+
+	tool := tools.NewSearchFileTool(dir)
+	input, _ := json.Marshal(map[string]string{"pattern": "func main"})
+	out, err := tool.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out == "no matches found" {
+		t.Fatal("expected matches, got none")
+	}
+	// Should contain the file:line: content format
+	if len(out) == 0 {
+		t.Error("expected non-empty output")
+	}
+}
+
+func TestSearchFileTool_NoMatches(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "file.go"), []byte("package main\n"), 0o644)
+
+	tool := tools.NewSearchFileTool(dir)
+	input, _ := json.Marshal(map[string]string{"pattern": "XYZNOTFOUND"})
+	out, err := tool.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out != "no matches found" {
+		t.Errorf("output = %q, want %q", out, "no matches found")
+	}
+}
+
+func TestSearchFileTool_PathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	tool := tools.NewSearchFileTool(dir)
+	input, _ := json.Marshal(map[string]string{"pattern": "x", "path": "../../etc"})
+	_, err := tool.Execute(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected path traversal error")
+	}
+}
+
+func TestSearchFileTool_SubdirectoryScope(t *testing.T) {
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "pkg")
+	_ = os.MkdirAll(subdir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "root.go"), []byte("// root\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(subdir, "pkg.go"), []byte("// pkg\n"), 0o644)
+
+	tool := tools.NewSearchFileTool(dir)
+	// Search only in the subdir
+	input, _ := json.Marshal(map[string]string{"pattern": "pkg", "path": "pkg"})
+	out, err := tool.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	// root.go should NOT appear since we scoped to pkg/
+	if out == "no matches found" {
+		t.Fatal("expected at least one match in pkg/")
+	}
+}

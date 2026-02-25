@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/ravi-parthasarathy/attractor/pkg/agent"
 	"github.com/ravi-parthasarathy/attractor/pkg/agent/tools"
@@ -47,12 +48,23 @@ func (h *CodergenHandler) Handle(ctx context.Context, node *pipeline.Node, pctx 
 	registry.Register(tools.NewWriteFileTool(workdir))
 	registry.Register(tools.NewRunCommandTool(workdir))
 	registry.Register(tools.NewListDirTool(workdir))
+	registry.Register(tools.NewSearchFileTool(workdir))
+
+	opts := []agent.Option{
+		agent.WithModel(model),
+	}
+
+	// Optional max_turns from node attribute.
+	if mt := node.Attrs["max_turns"]; mt != "" {
+		if n, parseErr := strconv.Atoi(mt); parseErr == nil && n > 0 {
+			opts = append(opts, agent.WithMaxTurns(n))
+		}
+	}
 
 	eventCh := make(chan agent.Event, 64)
-	loop := agent.NewCodingAgentLoop(client, registry, workdir,
-		agent.WithModel(model),
-		agent.WithEvents(eventCh),
-	)
+	opts = append(opts, agent.WithEvents(eventCh))
+
+	loop := agent.NewCodingAgentLoop(client, registry, workdir, opts...)
 
 	// Drain events in a goroutine for observability
 	done := make(chan struct{})

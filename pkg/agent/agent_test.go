@@ -1,12 +1,15 @@
 package agent_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/ravi-parthasarathy/attractor/pkg/agent"
+	"github.com/ravi-parthasarathy/attractor/pkg/agent/tools"
 	"github.com/ravi-parthasarathy/attractor/pkg/llm"
 )
 
@@ -134,5 +137,58 @@ func TestLoopDetector_DefaultThreshold(t *testing.T) {
 	// Third call should trigger
 	if !ld.Record("t", input) {
 		t.Fatal("default threshold should trigger on 3rd call")
+	}
+}
+
+// ─── CodingAgentLoop max-turns test ──────────────────────────────────────────
+
+// infiniteToolClient always asks the agent to call a tool, forcing the loop
+// to run indefinitely until something stops it.
+type infiniteToolClient struct{}
+
+func (c *infiniteToolClient) Complete(_ context.Context, _ llm.GenerateRequest) (llm.GenerateResponse, error) {
+	return llm.GenerateResponse{
+		Content: []llm.ContentBlock{
+			{
+				Type: llm.ContentTypeToolUse,
+				ToolUse: &llm.ToolUse{
+					ID:    "call-1",
+					Name:  "list_dir",
+					Input: json.RawMessage(`{"path":"."}`),
+				},
+			},
+		},
+		StopReason: llm.StopReasonToolUse,
+	}, nil
+}
+
+func (c *infiniteToolClient) Stream(_ context.Context, _ llm.GenerateRequest) (<-chan llm.StreamEvent, error) {
+	ch := make(chan llm.StreamEvent)
+	close(ch)
+	return ch, nil
+}
+
+func TestAgentLoop_MaxTurns(t *testing.T) {
+	dir := t.TempDir()
+	reg := tools.NewRegistry()
+	reg.Register(tools.NewListDirTool(dir))
+
+	loop := agent.NewCodingAgentLoop(
+		&infiniteToolClient{},
+		reg,
+		dir,
+		agent.WithMaxTurns(3),
+	)
+
+	_, err := loop.Run(context.Background(), "loop forever")
+	if err == nil {
+		t.Fatal("expected MaxTurnsError, got nil")
+	}
+	var maxErr *agent.MaxTurnsError
+	if !errors.As(err, &maxErr) {
+		t.Fatalf("expected *agent.MaxTurnsError, got %T: %v", err, err)
+	}
+	if maxErr.Turns != 3 {
+		t.Errorf("MaxTurnsError.Turns = %d, want 3", maxErr.Turns)
 	}
 }

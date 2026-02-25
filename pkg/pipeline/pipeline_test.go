@@ -124,6 +124,54 @@ func TestValidate_UnreachableNode(t *testing.T) {
 	}
 }
 
+func TestValidate_FanOutNoFanIn(t *testing.T) {
+	// fan_out with no reachable fan_in — should fail validation.
+	src := `digraph bad {
+		s    [type=start]
+		fork [type=fan_out]
+		a    [type=set, key="x", value="1"]
+		b    [type=set, key="y", value="2"]
+		e    [type=exit]
+		s    -> fork
+		fork -> a
+		fork -> b
+		a    -> e
+		b    -> e
+	}`
+	p, err := pipeline.ParseDOT(src)
+	if err != nil {
+		t.Fatalf("ParseDOT: %v", err)
+	}
+	if err := pipeline.ValidateErr(p); err == nil {
+		t.Error("expected lint error for fan_out with no reachable fan_in")
+	}
+}
+
+func TestValidate_FanOutWithFanIn(t *testing.T) {
+	// Properly paired fan_out/fan_in — should pass.
+	src := `digraph ok {
+		s    [type=start]
+		fork [type=fan_out]
+		a    [type=set, key="x", value="1"]
+		b    [type=set, key="y", value="2"]
+		join [type=fan_in]
+		e    [type=exit]
+		s    -> fork
+		fork -> a
+		fork -> b
+		a    -> join
+		b    -> join
+		join -> e
+	}`
+	p, err := pipeline.ParseDOT(src)
+	if err != nil {
+		t.Fatalf("ParseDOT: %v", err)
+	}
+	if err := pipeline.ValidateErr(p); err != nil {
+		t.Errorf("expected valid pipeline, got: %v", err)
+	}
+}
+
 // ─── Condition evaluator tests ────────────────────────────────────────────────
 
 func TestEvalCondition(t *testing.T) {
