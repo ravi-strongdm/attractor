@@ -63,6 +63,13 @@ func (c *PipelineContext) Merge(src map[string]any) {
 	}
 }
 
+// Copy returns a new PipelineContext initialised from a snapshot of this one.
+// The copy is completely independent — mutations to either context do not
+// affect the other.
+func (c *PipelineContext) Copy() *PipelineContext {
+	return &PipelineContext{data: c.Snapshot()}
+}
+
 // checkpoint is the JSON-serialisable form of a saved checkpoint.
 type checkpoint struct {
 	LastNodeID string         `json:"last_node_id"`

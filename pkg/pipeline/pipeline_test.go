@@ -348,3 +348,84 @@ func TestEngine_NilInputs(t *testing.T) {
 		t.Error("expected error for nil context")
 	}
 }
+
+// ─── Parallel fan-out tests ───────────────────────────────────────────────────
+
+func TestEngine_ParallelFanOut(t *testing.T) {
+	// Topology: start → fork → [analyze, summarize] → join → report → exit
+	// Both branches must run and their keys must appear in the merged context.
+	src := `digraph parallel {
+		start     [type=start]
+		fork      [type=fan_out]
+		analyze   [type=set, key="analysis",  value="analysis complete"]
+		summarize [type=set, key="summary",   value="summary complete"]
+		join      [type=fan_in]
+		report    [type=set, key="report",    value="done"]
+		done      [type=exit]
+
+		start     -> fork
+		fork      -> analyze
+		fork      -> summarize
+		analyze   -> join
+		summarize -> join
+		join      -> report
+		report    -> done
+	}`
+	p, err := pipeline.ParseDOT(src)
+	if err != nil {
+		t.Fatalf("ParseDOT: %v", err)
+	}
+
+	reg := handlers.NewRegistry()
+	reg.Register("start", &handlers.StartHandler{})
+	reg.Register("fan_out", &handlers.FanOutHandler{})
+	reg.Register("set", &handlers.SetHandler{})
+	reg.Register("fan_in", &handlers.FanInHandler{})
+	reg.Register("exit", &handlers.ExitHandler{})
+
+	pctx := pipeline.NewPipelineContext()
+	eng, err := pipeline.NewEngine(p, reg, pctx, "")
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	if err := eng.Execute(context.Background(), ""); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Both branch outputs must be present in the merged context.
+	if got := pctx.GetString("analysis"); got != "analysis complete" {
+		t.Errorf("analysis = %q, want %q", got, "analysis complete")
+	}
+	if got := pctx.GetString("summary"); got != "summary complete" {
+		t.Errorf("summary = %q, want %q", got, "summary complete")
+	}
+	// Post-fan_in node must also have run.
+	if got := pctx.GetString("report"); got != "done" {
+		t.Errorf("report = %q, want %q", got, "done")
+	}
+}
+
+func TestPipelineContext_Copy(t *testing.T) {
+	orig := pipeline.NewPipelineContext()
+	orig.Set("x", "original")
+
+	cp := orig.Copy()
+
+	// Copy has the same values.
+	if got := cp.GetString("x"); got != "original" {
+		t.Errorf("copy x = %q, want %q", got, "original")
+	}
+
+	// Mutating the copy does not affect the original.
+	cp.Set("x", "modified")
+	if got := orig.GetString("x"); got != "original" {
+		t.Errorf("original x after copy mutation = %q, want %q", got, "original")
+	}
+
+	// Mutating the original does not affect the copy.
+	orig.Set("y", "new")
+	if _, ok := cp.Snapshot()["y"]; ok {
+		t.Error("copy should not see keys added to original after Copy()")
+	}
+}

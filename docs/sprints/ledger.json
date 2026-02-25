@@ -1,0 +1,18 @@
+{
+  "sprints": {
+    "003": {
+      "status": "in_progress",
+      "started_at": "2026-02-25T17:39:32Z"
+    },
+    "001": {
+      "status": "completed",
+      "started_at": "2026-02-25T17:39:36Z",
+      "completed_at": "2026-02-25T17:39:36Z"
+    },
+    "002": {
+      "status": "completed",
+      "started_at": "2026-02-25T17:39:36Z",
+      "completed_at": "2026-02-25T17:39:36Z"
+    }
+  }
+}

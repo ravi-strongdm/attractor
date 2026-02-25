@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 )
 
 const maxNodeVisits = 50
@@ -53,12 +54,28 @@ func (e *Engine) Execute(ctx context.Context, resumeFromNodeID string) error {
 	if startID == "" {
 		return fmt.Errorf("no start node found in pipeline")
 	}
+	return e.run(ctx, startID, e.pctx, "")
+}
 
-	// Visit counter for cycle detection.
+// run is the inner sequential execution loop.  It stops when:
+//   - an exit node is reached (returns nil)
+//   - a node whose type equals stopAtType is encountered (returns nil, caller
+//     takes over from that node)
+//   - an error occurs
+//
+// stopAtType == "" means run until exit.
+func (e *Engine) run(ctx context.Context, startID string, pctx *PipelineContext, stopAtType NodeType) error {
 	visits := make(map[string]int)
-
 	currentID := startID
+
 	for {
+		// Respect context cancellation between nodes.
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled at node %q: %w", currentID, ctx.Err())
+		default:
+		}
+
 		// Cycle detection.
 		visits[currentID]++
 		if visits[currentID] > maxNodeVisits {
@@ -70,6 +87,25 @@ func (e *Engine) Execute(ctx context.Context, resumeFromNodeID string) error {
 			return fmt.Errorf("node %q not found in pipeline", currentID)
 		}
 
+		// Stop-at boundary: caller will handle this node type.
+		if stopAtType != "" && node.Type == stopAtType {
+			return nil
+		}
+
+		// ── Fan-out: run all branches in parallel then skip to fan_in ──────
+		if node.Type == NodeTypeFanOut {
+			if err := e.executeFanOut(ctx, node, pctx); err != nil {
+				return err
+			}
+			// After fan-out completes, find and continue from fan_in.
+			fanInID, err := e.findFanIn(node.ID)
+			if err != nil {
+				return fmt.Errorf("fan_out node %q: %w", node.ID, err)
+			}
+			currentID = fanInID
+			continue
+		}
+
 		handler, err := e.handlerReg.Get(node.Type)
 		if err != nil {
 			return fmt.Errorf("node %q (type=%q): %w", currentID, node.Type, err)
@@ -77,14 +113,14 @@ func (e *Engine) Execute(ctx context.Context, resumeFromNodeID string) error {
 
 		fmt.Printf("[attractor] executing node %q (type=%s)\n", node.ID, node.Type)
 
-		if execErr := handler.Handle(ctx, node, e.pctx); execErr != nil {
+		if execErr := handler.Handle(ctx, node, pctx); execErr != nil {
 			// Check for the exit sentinel.
 			var exitSig ExitSignal
 			if errors.As(execErr, &exitSig) {
 				fmt.Printf("[attractor] pipeline complete at exit node %q\n", node.ID)
-				e.pctx.Set("last_node", node.ID)
+				pctx.Set("last_node", node.ID)
 				if e.checkpointPath != "" {
-					_ = e.pctx.SaveCheckpoint(e.checkpointPath, node.ID)
+					_ = pctx.SaveCheckpoint(e.checkpointPath, node.ID)
 				}
 				return nil
 			}
@@ -93,13 +129,13 @@ func (e *Engine) Execute(ctx context.Context, resumeFromNodeID string) error {
 
 		// Checkpoint after every successful node execution.
 		if e.checkpointPath != "" {
-			if cpErr := e.pctx.SaveCheckpoint(e.checkpointPath, node.ID); cpErr != nil {
+			if cpErr := pctx.SaveCheckpoint(e.checkpointPath, node.ID); cpErr != nil {
 				return fmt.Errorf("node %q: save checkpoint: %w", node.ID, cpErr)
 			}
 		}
 
 		// Determine next node.
-		nextID, err := e.selectNext(node.ID)
+		nextID, err := e.selectNext(node.ID, pctx)
 		if err != nil {
 			return fmt.Errorf("node %q: select next: %w", node.ID, err)
 		}
@@ -110,14 +146,89 @@ func (e *Engine) Execute(ctx context.Context, resumeFromNodeID string) error {
 		}
 
 		currentID = nextID
+	}
+}
 
-		// Respect context cancellation between nodes.
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("pipeline cancelled at node %q: %w", currentID, ctx.Err())
-		default:
+// executeFanOut runs all outgoing branches of a fan_out node in parallel,
+// using goroutines. Each branch receives an independent copy of pctx and
+// runs until it reaches a fan_in node (exclusive). After all branches
+// complete, their results are merged into pctx (last-write-wins).
+func (e *Engine) executeFanOut(ctx context.Context, fanOutNode *Node, pctx *PipelineContext) error {
+	outEdges := e.pipeline.OutgoingEdges(fanOutNode.ID)
+	if len(outEdges) == 0 {
+		return fmt.Errorf("fan_out node %q has no outgoing edges", fanOutNode.ID)
+	}
+
+	type branchResult struct {
+		snap map[string]any
+		err  error
+	}
+	results := make([]branchResult, len(outEdges))
+
+	var wg sync.WaitGroup
+	for i, edge := range outEdges {
+		branchStart := edge.To
+		idx := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			branchCtx := pctx.Copy()
+			subEng := &Engine{
+				pipeline:   e.pipeline,
+				handlerReg: e.handlerReg,
+				pctx:       branchCtx,
+				// no checkpointing inside branches
+			}
+			fmt.Printf("[attractor] fan_out branch %q starting\n", branchStart)
+			err := subEng.run(ctx, branchStart, branchCtx, NodeTypeFanIn)
+			if err != nil {
+				results[idx] = branchResult{err: fmt.Errorf("branch %q: %w", branchStart, err)}
+				return
+			}
+			fmt.Printf("[attractor] fan_out branch %q complete\n", branchStart)
+			results[idx] = branchResult{snap: branchCtx.Snapshot()}
+		}()
+	}
+	wg.Wait()
+
+	// Collect errors and merge results.
+	var errs []error
+	for _, r := range results {
+		if r.err != nil {
+			errs = append(errs, r.err)
+			continue
+		}
+		pctx.Merge(r.snap)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("parallel branches failed: %v", errs)
+	}
+	return nil
+}
+
+// findFanIn performs a BFS from fanOutID to locate the first downstream node
+// of type fan_in. Returns an error if none is reachable.
+func (e *Engine) findFanIn(fanOutID string) (string, error) {
+	visited := make(map[string]bool)
+	queue := []string{fanOutID}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if visited[id] {
+			continue
+		}
+		visited[id] = true
+		for _, edge := range e.pipeline.OutgoingEdges(id) {
+			next := edge.To
+			if n, ok := e.pipeline.Nodes[next]; ok && n.Type == NodeTypeFanIn {
+				return next, nil
+			}
+			if !visited[next] {
+				queue = append(queue, next)
+			}
 		}
 	}
+	return "", fmt.Errorf("no fan_in node reachable from fan_out %q", fanOutID)
 }
 
 // startNode returns the ID of the first node with type NodeTypeStart.
@@ -133,13 +244,13 @@ func (e *Engine) startNode() string {
 // selectNext evaluates outgoing edges from nodeID in order and returns the
 // first edge whose condition evaluates to true.  An empty label (or
 // underscore "_") is treated as an unconditional edge.
-func (e *Engine) selectNext(nodeID string) (string, error) {
+func (e *Engine) selectNext(nodeID string, pctx *PipelineContext) (string, error) {
 	edges := e.pipeline.OutgoingEdges(nodeID)
 	if len(edges) == 0 {
 		return "", nil
 	}
 
-	snap := e.pctx.Snapshot()
+	snap := pctx.Snapshot()
 
 	for _, edge := range edges {
 		cond := edge.Condition
