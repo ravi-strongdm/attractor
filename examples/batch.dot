@@ -1,0 +1,56 @@
+// batch.dot — demonstrates the split and map node types for batch processing.
+//
+// This pipeline:
+//  1. Reads a newline-delimited list of topics from an env var.
+//  2. Splits it into a JSON array.
+//  3. Asserts there is at least one topic.
+//  4. Uses map to run a codergen prompt for each topic in parallel (max 2 at once).
+//  5. Writes the JSON results array to disk.
+//
+// Run (requires LLM API key):
+//   TOPICS="Go generics\nRust lifetimes\nZig comptime" \
+//   attractor run examples/batch.dot --var output_dir=/tmp/batch-demo
+
+digraph batch {
+    start [type=start]
+
+    // Load topics from environment.
+    load_topics [type=env
+                 key="topics_raw"
+                 from="TOPICS"
+                 required="true"]
+
+    // Split into JSON array, trimming whitespace.
+    split_topics [type=split
+                  source="topics_raw"
+                  sep="\n"
+                  trim="true"
+                  key="topics"]
+
+    // Fail fast if no topics.
+    check [type=assert
+           expr="topics"
+           message="TOPICS env var produced an empty list"]
+
+    // Run a codergen prompt for each topic, max 2 in parallel.
+    analyse [type=map
+             items="topics"
+             item_key="topic"
+             prompt="Write a two-sentence technical summary of: {{.topic}}"
+             results_key="summaries"
+             concurrency="2"]
+
+    // Save the summaries JSON array.
+    save [type=write_file
+          path="{{.output_dir}}/summaries.json"
+          content="{{.summaries}}\n"]
+
+    done [type=exit]
+
+    start        -> load_topics
+    load_topics  -> split_topics
+    split_topics -> check
+    check        -> analyse
+    analyse      -> save
+    save         -> done
+}

@@ -19,6 +19,8 @@ const (
 	NodeTypeReadFile    NodeType = "read_file"
 	NodeTypeWriteFile   NodeType = "write_file"
 	NodeTypeJSONExtract NodeType = "json_extract"
+	NodeTypeSplit       NodeType = "split"
+	NodeTypeMap         NodeType = "map"
 )
 
 // Node represents a single vertex in the pipeline graph.

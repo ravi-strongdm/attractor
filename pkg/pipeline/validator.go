@@ -31,6 +31,8 @@ var nodeRequiredAttrs = map[NodeType][]string{
 	NodeTypeReadFile:    {"key", "path"},
 	NodeTypeWriteFile:   {"path", "content"},
 	NodeTypeJSONExtract: {"source", "path", "key"},
+	NodeTypeSplit:       {"source", "key"},
+	NodeTypeMap:         {"items", "item_key", "prompt"},
 }
 
 // Validate checks a pipeline for structural correctness.

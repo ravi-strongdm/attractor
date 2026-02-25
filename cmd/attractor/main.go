@@ -372,6 +372,8 @@ func buildRegistry(workdir, defaultModel string) *handlers.Registry {
 	reg.Register("read_file", &handlers.ReadFileHandler{})
 	reg.Register("write_file", &handlers.WriteFileHandler{})
 	reg.Register("json_extract", &handlers.JSONExtractHandler{})
+	reg.Register("split", &handlers.SplitHandler{})
+	reg.Register("map", &handlers.MapHandler{DefaultModel: defaultModel, Workdir: workdir})
 	reg.Register("codergen", &handlers.CodergenHandler{
 		DefaultModel: defaultModel,
 		Workdir:      workdir,
