@@ -247,10 +247,18 @@ func (e *Engine) startNode() string {
 // selectNext evaluates outgoing edges from nodeID in order and returns the
 // first edge whose condition evaluates to true.  An empty label (or
 // underscore "_") is treated as an unconditional edge.
+//
+// For switch nodes, exact string matching is used instead of condition
+// evaluation — see selectNextSwitch.
 func (e *Engine) selectNext(nodeID string, pctx *PipelineContext) (string, error) {
 	edges := e.pipeline.OutgoingEdges(nodeID)
 	if len(edges) == 0 {
 		return "", nil
+	}
+
+	// Switch nodes use value-equality routing, not condition evaluation.
+	if node, ok := e.pipeline.Nodes[nodeID]; ok && node.Type == NodeTypeSwitch {
+		return e.selectNextSwitch(node, edges, pctx)
 	}
 
 	snap := pctx.Snapshot()
@@ -272,6 +280,32 @@ func (e *Engine) selectNext(nodeID string, pctx *PipelineContext) (string, error
 
 	// No condition matched — this is a pipeline stall.
 	return "", fmt.Errorf("no outgoing edge condition matched for node %q", nodeID)
+}
+
+// selectNextSwitch routes a switch node by matching the current value of the
+// context key against edge labels using exact string equality.
+// Falls back to any edge labelled "", "_", or "default" when no label matches.
+func (e *Engine) selectNextSwitch(node *Node, edges []*Edge, pctx *PipelineContext) (string, error) {
+	key := node.Attrs["key"]
+	ctxVal := fmt.Sprintf("%v", pctx.Snapshot()[key])
+
+	var defaultEdge *Edge
+	for _, edge := range edges {
+		cond := edge.Condition
+		if cond == "" || cond == "_" || cond == "default" {
+			if defaultEdge == nil {
+				defaultEdge = edge
+			}
+			continue
+		}
+		if cond == ctxVal {
+			return edge.To, nil
+		}
+	}
+	if defaultEdge != nil {
+		return defaultEdge.To, nil
+	}
+	return "", fmt.Errorf("switch node %q: no edge matches value %q and no default edge", node.ID, ctxVal)
 }
 
 // executeWithRetry calls h.Handle and, on error, retries up to retry_max

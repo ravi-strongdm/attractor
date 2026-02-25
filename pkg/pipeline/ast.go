@@ -14,6 +14,8 @@ const (
 	NodeTypeHTTP     NodeType = "http"
 	NodeTypeAssert   NodeType = "assert"
 	NodeTypeSleep    NodeType = "sleep"
+	NodeTypeSwitch   NodeType = "switch"
+	NodeTypeEnv      NodeType = "env"
 )
 
 // Node represents a single vertex in the pipeline graph.

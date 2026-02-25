@@ -367,6 +367,8 @@ func buildRegistry(workdir, defaultModel string) *handlers.Registry {
 	reg.Register("http", &handlers.HTTPHandler{})
 	reg.Register("assert", &handlers.AssertHandler{})
 	reg.Register("sleep", &handlers.SleepHandler{})
+	reg.Register("switch", &handlers.SwitchHandler{})
+	reg.Register("env", &handlers.EnvHandler{})
 	reg.Register("codergen", &handlers.CodergenHandler{
 		DefaultModel: defaultModel,
 		Workdir:      workdir,

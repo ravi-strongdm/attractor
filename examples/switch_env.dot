@@ -1,0 +1,48 @@
+// switch_env.dot — demonstrates the switch and env node types.
+//
+// This pipeline:
+//  1. Loads the LLM model from an environment variable (with a default).
+//  2. Loads an optional PIPELINE_MODE env var to select a branch.
+//  3. Uses a switch node to route to fast, balanced, or thorough processing.
+//
+// Run:
+//   PIPELINE_MODE=fast attractor run examples/switch_env.dot
+//   PIPELINE_MODE=thorough attractor run examples/switch_env.dot
+//   attractor run examples/switch_env.dot   # uses default "balanced"
+
+digraph switch_env {
+    start   [type=start]
+
+    // Inject environment-driven configuration.
+    load_model [type=env
+                key="model"
+                from="LLM_MODEL"
+                default="anthropic:claude-sonnet-4-6"]
+
+    load_mode  [type=env
+                key="mode"
+                from="PIPELINE_MODE"
+                default="balanced"]
+
+    // Route based on mode value.
+    route   [type=switch key="mode"]
+
+    fast      [type=set key="strategy" value="quick single-pass analysis"]
+    balanced  [type=set key="strategy" value="standard two-pass analysis"]
+    thorough  [type=set key="strategy" value="deep multi-pass analysis with verification"]
+
+    done    [type=exit]
+
+    start      -> load_model
+    load_model -> load_mode
+    load_mode  -> route
+
+    route -> fast     [label="fast"]
+    route -> balanced [label="balanced"]
+    route -> thorough [label="thorough"]
+    route -> balanced [label="_"]
+
+    fast      -> done
+    balanced  -> done
+    thorough  -> done
+}
