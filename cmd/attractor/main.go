@@ -417,6 +417,8 @@ func buildRegistry(workdir, defaultModel string) *handlers.Registry {
 	reg.Register("json_decode", &handlers.JSONDecodeHandler{})
 	reg.Register("exec", &handlers.ExecHandler{Workdir: workdir})
 	reg.Register("json_pack", &handlers.JSONPackHandler{})
+	reg.Register("regex", &handlers.RegexHandler{})
+	reg.Register("string_transform", &handlers.StringTransformHandler{})
 	reg.Register("codergen", &handlers.CodergenHandler{
 		DefaultModel: defaultModel,
 		Workdir:      workdir,

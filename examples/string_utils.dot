@@ -1,0 +1,44 @@
+// string_utils.dot — demonstrates the regex and string_transform node types.
+//
+// This pipeline:
+//  1. Reads a version string from an env var.
+//  2. Extracts the semver number with regex.
+//  3. Normalises a label with string_transform (trim + lower).
+//  4. Writes a summary to disk.
+//
+// Run:
+//   VERSION_STR="  Release v2.5.1  " \
+//   attractor run examples/string_utils.dot --var output_dir=/tmp/str-demo
+
+digraph string_utils {
+    start [type=start]
+
+    load [type=env key="version_str" from="VERSION_STR" required="true"]
+
+    // Trim whitespace and lower-case.
+    clean [type=string_transform
+           source="version_str"
+           ops="trim,lower"
+           key="version_clean"]
+
+    // Extract the semver number (e.g. "2.5.1").
+    extract [type=regex
+             source="version_clean"
+             pattern="v(\\d+\\.\\d+\\.\\d+)"
+             group="1"
+             key="semver"
+             no_match="unknown"]
+
+    // Write summary.
+    save [type=write_file
+          path="{{.output_dir}}/version.txt"
+          content="semver={{.semver}}\nraw={{.version_clean}}\n"]
+
+    done [type=exit]
+
+    start   -> load
+    load    -> clean
+    clean   -> extract
+    extract -> save
+    save    -> done
+}
