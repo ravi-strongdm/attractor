@@ -28,6 +28,7 @@ const (
 	NodeTypeRegex           NodeType = "regex"
 	NodeTypeStringTransform NodeType = "string_transform"
 	NodeTypeForEach         NodeType = "for_each"
+	NodeTypeInclude         NodeType = "include"
 )
 
 // Node represents a single vertex in the pipeline graph.

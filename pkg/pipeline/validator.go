@@ -40,6 +40,7 @@ var nodeRequiredAttrs = map[NodeType][]string{
 	NodeTypeRegex:           {"source", "pattern", "key"},
 	NodeTypeStringTransform: {"source", "ops", "key"},
 	NodeTypeForEach:         {"items", "item_key", "cmd"},
+	NodeTypeInclude:         {"path"},
 }
 
 // Validate checks a pipeline for structural correctness.

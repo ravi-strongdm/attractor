@@ -420,6 +420,13 @@ func buildRegistry(workdir, defaultModel string) *handlers.Registry {
 	reg.Register("regex", &handlers.RegexHandler{})
 	reg.Register("string_transform", &handlers.StringTransformHandler{})
 	reg.Register("for_each", &handlers.ForEachHandler{Workdir: workdir})
+	reg.Register("include", &handlers.IncludeHandler{
+		Workdir:      workdir,
+		DefaultModel: defaultModel,
+		RegistryBuilder: func(w, m string) pipeline.HandlerRegistry {
+			return buildRegistry(w, m)
+		},
+	})
 	reg.Register("codergen", &handlers.CodergenHandler{
 		DefaultModel: defaultModel,
 		Workdir:      workdir,

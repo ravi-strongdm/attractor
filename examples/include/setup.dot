@@ -1,0 +1,8 @@
+// setup.dot — reusable setup sub-pipeline.
+// Sets common config variables used by the parent pipeline.
+digraph setup {
+    start [type=start]
+    cfg   [type=set key="app_name" value="attractor-demo"]
+    done  [type=exit]
+    start -> cfg -> done
+}

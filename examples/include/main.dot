@@ -1,0 +1,16 @@
+// main.dot — demonstrates the include node type.
+//
+// Runs a reusable setup sub-pipeline, then uses the context it sets.
+//
+// Run:
+//   attractor run examples/include/main.dot --var output_dir=/tmp/include-demo
+
+digraph main {
+    start   [type=start]
+    setup   [type=include path="examples/include/setup.dot"]
+    save    [type=write_file
+             path="{{.output_dir}}/app.txt"
+             content="app={{.app_name}}\n"]
+    done    [type=exit]
+    start -> setup -> save -> done
+}
