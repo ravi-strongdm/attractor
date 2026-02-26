@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/ravi-parthasarathy/attractor/pkg/agent"
@@ -29,7 +28,7 @@ func TestSession_AppendAndMessages(t *testing.T) {
 
 func TestSession_Truncate(t *testing.T) {
 	sess := agent.NewSession("")
-	// Append 15 messages.
+	// Append 15 alternating messages: 0(user),1(asst),…,14(asst).
 	for i := 0; i < 15; i++ {
 		role := llm.RoleUser
 		if i%2 == 1 {
@@ -41,35 +40,26 @@ func TestSession_Truncate(t *testing.T) {
 		t.Fatalf("expected 15 messages before truncation, got %d", sess.Len())
 	}
 
-	// Truncate to head=2, tail=4 → 2 + marker + 4 = 7 entries.
+	// Truncate(headN=2, tailN=4):
+	//   tailStart = max(1, 15-4) = 11; messages[11] is asst → stop.
+	//   combined = [messages[0]] + messages[11..14] = 5 entries.
 	sess.Truncate(2, 4)
 	msgs := sess.Messages()
-	if len(msgs) != 7 {
-		t.Fatalf("after Truncate(2,4): expected 7 messages, got %d", len(msgs))
+	if len(msgs) != 5 {
+		t.Fatalf("after Truncate(2,4): expected 5 messages, got %d", len(msgs))
 	}
 
-	// First two messages unchanged.
-	first := msgs[0]
-	if len(first.Content) == 0 || first.Content[0].Text != "msg-0" {
-		t.Errorf("msgs[0] content = %v, want msg-0", first.Content)
+	// First message is the original user instruction.
+	if len(msgs[0].Content) == 0 || msgs[0].Content[0].Text != "msg-0" {
+		t.Errorf("msgs[0] content = %v, want msg-0", msgs[0].Content)
 	}
-
-	// Middle entry is the truncation marker.
-	marker := msgs[2]
-	if len(marker.Content) == 0 {
-		t.Fatal("marker message has no content")
+	// Second message is the first kept tail message (first asst at ≥ position 11).
+	if len(msgs[1].Content) == 0 || msgs[1].Content[0].Text != "msg-11" {
+		t.Errorf("msgs[1] content = %v, want msg-11", msgs[1].Content)
 	}
-	if !strings.Contains(marker.Content[0].Text, "TRUNCATED") {
-		t.Errorf("marker text = %q, expected to contain TRUNCATED", marker.Content[0].Text)
-	}
-	if !strings.Contains(marker.Content[0].Text, "9") {
-		t.Errorf("marker text = %q, expected to mention 9 omitted messages", marker.Content[0].Text)
-	}
-
 	// Last message is msg-14.
-	last := msgs[6]
-	if len(last.Content) == 0 || last.Content[0].Text != "msg-14" {
-		t.Errorf("msgs[6] content = %v, want msg-14", last.Content)
+	if len(msgs[4].Content) == 0 || msgs[4].Content[0].Text != "msg-14" {
+		t.Errorf("msgs[4] content = %v, want msg-14", msgs[4].Content)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -28,7 +29,7 @@ type anthropicClient struct {
 }
 
 func newAnthropicClient(modelName string) (*anthropicClient, error) {
-	sdk := anthropicsdk.NewClient(option.WithAPIKey("")) // reads ANTHROPIC_API_KEY automatically
+	sdk := anthropicsdk.NewClient(option.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")))
 	return &anthropicClient{sdk: sdk, modelName: modelName}, nil
 }
 
