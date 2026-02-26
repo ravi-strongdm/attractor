@@ -27,6 +27,7 @@ const (
 	NodeTypeJSONPack        NodeType = "json_pack"
 	NodeTypeRegex           NodeType = "regex"
 	NodeTypeStringTransform NodeType = "string_transform"
+	NodeTypeForEach         NodeType = "for_each"
 )
 
 // Node represents a single vertex in the pipeline graph.

@@ -1,0 +1,36 @@
+// for_each.dot — demonstrates the for_each node type.
+//
+// This pipeline:
+//  1. Splits a comma-separated list of names.
+//  2. Runs an echo command for each name sequentially.
+//  3. Saves the collected results as JSON.
+//
+// Run:
+//   NAMES="Alice,Bob,Carol" \
+//   attractor run examples/for_each.dot --var output_dir=/tmp/foreach-demo
+
+digraph for_each {
+    start [type=start]
+
+    load [type=env key="names_raw" from="NAMES" required="true"]
+
+    split [type=split source="names_raw" sep="," trim="true" key="names"]
+
+    each [type=for_each
+          items="names"
+          item_key="name"
+          cmd="echo Hello, {{.name}}!"
+          results_key="greetings"]
+
+    save [type=write_file
+          path="{{.output_dir}}/greetings.json"
+          content="{{.greetings}}\n"]
+
+    done [type=exit]
+
+    start -> load
+    load  -> split
+    split -> each
+    each  -> save
+    save  -> done
+}
